@@ -1,0 +1,84 @@
+services:
+  # SQL Server Database
+  sqlserver:
+    image: mcr.microsoft.com/mssql/server:2022-latest
+    container_name: sqlserver
+    environment:
+      - ACCEPT_EULA=${ACCEPT_EULA}
+      - SA_PASSWORD=${SA_PASSWORD}
+      - MSSQL_PID=${MSSQL_PID}
+    ports:
+      - "1433:1433"
+    volumes:
+      - sqlserver_data:/var/opt/mssql
+    networks:
+      - microservices-network
+
+  # RabbitMQ Message Broker
+  rabbitmq:
+    image: rabbitmq:3.12-management
+    container_name: rabbitmq
+    environment:
+      - RABBITMQ_DEFAULT_USER=${RABBITMQ_DEFAULT_USER}
+      - RABBITMQ_DEFAULT_PASS=${RABBITMQ_DEFAULT_PASS}
+    ports:
+      - "5672:5672"
+      - "15672:15672"
+    volumes:
+      - rabbitmq_data:/var/lib/rabbitmq
+    networks:
+      - microservices-network
+
+  # Stock Service
+  stock-service:
+    build:
+      context: ./services/stock.service
+      dockerfile: Dockerfile
+    container_name: stock-service
+    environment:
+      - ASPNETCORE_ENVIRONMENT=${ASPNETCORE_ENVIRONMENT}
+      - ASPNETCORE_URLS=${ASPNETCORE_URLS}
+      - ConnectionStrings__DefaultConnection=Server=sqlserver;Database=${STOCK_DB};User Id=sa;Password=${SA_PASSWORD};TrustServerCertificate=true;
+      - RabbitMQ__Host=rabbitmq
+      - RabbitMQ__Username=${RABBITMQ_DEFAULT_USER}
+      - RabbitMQ__Password=${RABBITMQ_DEFAULT_PASS}
+    ports:
+      - "5001:80"
+    depends_on:
+      - sqlserver
+      - rabbitmq
+    networks:
+      - microservices-network
+    restart: unless-stopped
+
+  # Sales Service
+  sales-service:
+    build:
+      context: ./services/sales.service
+      dockerfile: Dockerfile
+    container_name: sales-service
+    environment:
+      - ASPNETCORE_ENVIRONMENT=${ASPNETCORE_ENVIRONMENT}
+      - ASPNETCORE_URLS=${ASPNETCORE_URLS}
+      - ConnectionStrings__DefaultConnection=Server=sqlserver;Database=${SALES_DB};User Id=sa;Password=${SA_PASSWORD};TrustServerCertificate=true;
+      - RabbitMQ__Host=rabbitmq
+      - RabbitMQ__Username=${RABBITMQ_DEFAULT_USER}
+      - RabbitMQ__Password=${RABBITMQ_DEFAULT_PASS}
+      - StockService__BaseUrl=http://stock-service
+    ports:
+      - "5002:80"
+    depends_on:
+      - sqlserver
+      - rabbitmq
+      - stock-service
+    networks:
+      - microservices-network
+    restart: unless-stopped
+
+volumes:
+  sqlserver_data:
+  rabbitmq_data:
+
+networks:
+  microservices-network:
+    driver: bridge
